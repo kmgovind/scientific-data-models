@@ -1,15 +1,15 @@
 # Scientific Data Models
 
-## What is this Repository?
+## Overview
 
 Many sustainably powered robots are designed to collect scientific information about the world. Examples include environmental monitoring, ocean sampling, weather observation, and ecological surveys.
 
 This repository contains examples of different types of scientific data, along with:
 
-* Data sources and download scripts
-* Mathematical models used to describe the data
-* Visualization notebooks
-* Supporting Julia code
+- Data sources and download scripts
+- Mathematical models used to describe the data
+- Visualization notebooks
+- Supporting Julia code
 
 The goal is to provide a collection of scientific data models that can be explored, visualized, and compared.
 
@@ -17,22 +17,18 @@ The goal is to provide a collection of scientific data models that can be explor
 
 # Getting Started
 
-## What You Need
+## Prerequisites
 
-Before using this repository, install:
+Before using this repository, install the following software:
 
-1. **Julia** (the programming language used in this project)
+1. **Julia** – the programming language used throughout this project.
+   - https://julialang.org/downloads/
 
-   * Download: https://julialang.org/downloads/
+2. **Git** – used to download the repository.
+   - https://git-scm.com/downloads
 
-2. **Git** (used to download the repository)
-
-   * Download: https://git-scm.com/downloads
-
-3. **Jupyter Notebook** (used to view and run visualizations)
-
-   * Installation instructions: https://jupyter.org/install
-
+3. **Jupyter Notebook** – used to view and run the visualization notebooks.
+   - https://jupyter.org/install
 
 ---
 
@@ -40,13 +36,11 @@ Before using this repository, install:
 
 The repository is hosted on GitHub.
 
-To download it, open a terminal and run:
+Clone the repository using:
 
 ```bash
 git clone <repository-url>
 ```
-
-This will create a local copy of the repository on your computer.
 
 Move into the repository directory:
 
@@ -58,54 +52,53 @@ cd <repository-name>
 
 # Setting Up the Julia Environment
 
-This repository includes a file called `Project.toml`.
+This repository includes a `Project.toml` file that specifies all required Julia packages.
 
-This file tells Julia which packages are required for the project.
-
-From the repository directory, start Julia:
+Start Julia from the repository root:
 
 ```bash
 julia --project
 ```
 
-You should see a prompt that looks something like:
+You should see a prompt similar to:
 
 ```julia
 julia>
 ```
 
-Press the `]` key to enter Julia's package manager mode. The prompt should change to:
+Press `]` to enter the Julia package manager. The prompt will change to something like:
 
 ```julia
 (@v1.x) pkg>
 ```
 
-Now run:
+Run:
 
 ```julia
 instantiate
 ```
 
-This may take several minutes the first time. Julia will automatically download and install all required packages.
+The first installation may take several minutes while Julia downloads and installs all required packages.
 
-When installation finishes, press Backspace to return to the normal Julia prompt.
+When installation is complete, press **Backspace** (or **Ctrl+C**) to return to the standard Julia prompt.
 
-You only need to run `instantiate` once after cloning the repository.
+> **Note:** You only need to run `instantiate` once after cloning the repository (or whenever the project dependencies change).
 
 ---
 
 # Opening the Visualization Notebooks
+## VS Code
+Ensure that the **Jupyter** extension is installed in **VS Code**. This allows `.ipynb` notebooks to open and run directly within VS Code. When opening a notebook, make sure the **Julia kernel** is selected from the kernel picker in the upper-right corner.
 
-Each data type includes one or more Jupyter notebooks (`.ipynb` files).
+## Using Jupyter in the browser
+Each data type includes one or more Jupyter notebooks (`.ipynb`) containing:
 
-A notebook contains:
+- Background information
+- Executable code
+- Figures and plots
+- Interactive visualizations
 
-* Explanations
-* Code
-* Figures and plots
-* Interactive exploration tools
-
-To start Jupyter:
+Launch Jupyter with:
 
 ```bash
 jupyter notebook
@@ -113,26 +106,53 @@ jupyter notebook
 
 A browser window should open automatically.
 
-Navigate to the notebook you want to explore and open the `.ipynb` file.
+Navigate to the notebook you wish to explore and open the corresponding `.ipynb` file.
 
-To run a notebook:
+To execute a notebook:
 
-* Click inside a cell.
-* Press **Shift + Enter**.
+- Click inside a cell.
+- Press **Shift + Enter**.
 
-This executes the code and moves to the next cell.
+This executes the current cell and advances to the next one.
+
+
+# Running Julia Scripts
+There are two common ways to run a Julia script.
+
+## Option 1: From the Julia REPL
+
+Navigate to the appropriate directory and start Julia:
+
+```bash
+julia --project
+```
+
+Then execute the script:
+
+```julia
+include("filename.jl")
+```
+
+## Option 2: From the Command Line
+
+Run the script directly:
+
+```bash
+julia --project filename.jl
+```
+
 
 ---
 
 # Repository Structure
 
-The repository is organized by data type.
+The repository is organized by scientific data type.
 
 ```text
 repository/
 │
 ├── src/
-│   └── Helper Julia functions
+│   └── Reusable Julia helper functions
 │
 ├── DataTypeA/
 │   ├── download_data.jl
@@ -151,13 +171,11 @@ repository/
 
 # Data Type Directories
 
-Each data type has its own directory.
+Each data type has its own directory containing the files needed to download, understand, and visualize that dataset.
 
-Inside you will typically find:
+## Download Script
 
-### Download Script
-
-A Julia script that downloads the data.
+The download script retrieves any required datasets that are not already present.
 
 Example:
 
@@ -165,11 +183,11 @@ Example:
 download_data.jl
 ```
 
-Run this script if the required data files are not already present.
+---
 
-### Visualization Notebook
+## Visualization Notebook
 
-A Jupyter notebook used to explore and visualize the data.
+A Jupyter notebook used to explore and visualize the dataset.
 
 Example:
 
@@ -177,38 +195,32 @@ Example:
 visualization.ipynb
 ```
 
-### Documentation
+---
 
-A Markdown file explaining:
+## Documentation
 
-* What the data represents
-* Where it comes from
-* Relevant scientific background
-* Mathematical models used
+Each directory includes a `README.md` describing:
 
-Example:
+- What the dataset represents
+- Where the data comes from
+- Relevant scientific background
+- Mathematical models used to describe the data
 
-```text
-README.md
-```
+---
 
-### Data Files
+## Data Files
 
-The raw data used by the notebooks and scripts.
+The `data/` directory contains the raw data used by the notebooks and scripts.
 
-Large datasets may not be stored directly in GitHub due to size limits.
+Some datasets may not be stored directly in GitHub because of file size limitations. In those cases, use the provided download script to retrieve the required files.
 
 ---
 
 # Helper Functions
 
-Reusable Julia functions are stored in the `src/` directory.
+Reusable Julia utilities are stored in the `src/` directory.
 
-These functions can be loaded into a script or notebook using:
-
-```julia
-include("../src/filename.jl")
-```
+Load them into a script or notebook using `include`.
 
 For example:
 
@@ -225,29 +237,25 @@ This makes the functions defined in that file available for use.
 If this is your first time using the repository:
 
 1. Clone the repository.
-
-2. Start Julia with:
+2. Start Julia:
 
    ```bash
    julia --project
    ```
 
-3. Run:
+3. Install the project dependencies:
 
    ```julia
    ]
    instantiate
    ```
 
-4. Open a data type directory.
-
-5. Read the documentation file.
-
-6. Open the visualization notebook.
-
-7. Run the notebook from top to bottom.
-
-8. Experiment with the code and plots.
+4. Navigate to the directory for the dataset you want to explore.
+5. Read the `README.md`.
+6. Run the data download script if necessary.
+7. Open the visualization notebook.
+8. Run the notebook from top to bottom.
+9. Experiment with the code and visualizations.
 
 ---
 
@@ -255,13 +263,13 @@ If this is your first time using the repository:
 
 ## Julia Cannot Find a Package
 
-Make sure you started Julia with:
+Ensure that Julia was started with the project environment:
 
 ```bash
 julia --project
 ```
 
-and have run:
+Then install the required packages:
 
 ```julia
 ]
@@ -272,12 +280,12 @@ instantiate
 
 ## Notebook Fails to Run
 
-Try restarting the notebook kernel and running all cells again from the beginning.
+Try restarting the notebook kernel and then run all cells from the beginning.
 
 ---
 
 ## Data Files Are Missing
 
-Check the documentation in the corresponding data directory. Some datasets must be downloaded separately using the provided download script.
+Consult the `README.md` in the corresponding data directory.
 
----
+Some datasets must be downloaded separately using the provided `download_data.jl` script.
