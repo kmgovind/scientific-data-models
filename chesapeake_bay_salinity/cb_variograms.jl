@@ -1,6 +1,6 @@
 module Variograms
 
-using LinearAlgebra, LsqFit, StatsBase, DataFrames, Distances
+using LinearAlgebra, LsqFit, StatsBase, DataFrames, Distances, Dates
 
 # Function to calculate pairwise distances
 function pairwise_distances(lon, lat, y)
@@ -34,97 +34,171 @@ function pairwise_distances(lon, lat, y)
     return h, γ
 end
 
-# Function to calculate the empirical variogram
-function empirical_variogram(h, γ, n_bins=50)
-    h_max = maximum(h)
-    h_edges = range(0, h_max, length=n_bins+1)
-    
-    # Pre-allocate flat vectors for performance
-    bin_sums = zeros(eltype(γ), n_bins)
-    bin_counts = zeros(Int64, n_bins)
-    
-    # Calculate the width of each bin for fast lookup mapping
+function empirical_spatial_variogram(lon, lat, y; n_bins=50)
+    n = length(y)
+
+    # -----------------------------------------------------------
+    # First pass: determine maximum pairwise distance
+    # -----------------------------------------------------------
+    h_max = zero(eltype(lon))
+
+    for i in 1:n-1
+        p1 = (lon[i], lat[i])
+
+        for j in i+1:n
+            d = haversine(p1, (lon[j], lat[j])) / 1000
+
+            if d > h_max
+                h_max = d
+            end
+        end
+    end
+
     bin_width = h_max / n_bins
-    
-    n = size(h, 1)
-    
-    # Accumulate sums and counts in a single pass over the upper triangle
-    for i in 1:n
-        for j in (i+1):n
-            h_val = h[i, j]
-            
-            # Fast mathematical indexing to find which bin h_val belongs to
-            if h_val >= h_max
-                bin_idx = n_bins
-            else
-                bin_idx = floor(Int, h_val / bin_width) + 1
-            end
-            
-            if 1 <= bin_idx <= n_bins
-                bin_sums[bin_idx] += γ[i, j]
-                bin_counts[bin_idx] += 1
+
+    bin_sums = zeros(Float64, n_bins)
+    bin_counts = zeros(Int, n_bins)
+
+    # -----------------------------------------------------------
+    # Second pass: compute semivariances and bin immediately
+    # -----------------------------------------------------------
+    for i in 1:n-1
+        p1 = (lon[i], lat[i])
+        yi = y[i]
+
+        for j in i+1:n
+            d = haversine(p1, (lon[j], lat[j])) / 1000
+
+            γ = 0.5 * (yi - y[j])^2
+
+            bin = d == h_max ? n_bins : floor(Int, d / bin_width) + 1
+
+            @inbounds begin
+                bin_sums[bin] += γ
+                bin_counts[bin] += 1
             end
         end
     end
-    
-    # Construct the final vectors for rows that actually have data
-    h_mids = Float64[]
-    variograms = Float64[]
-    counts = Int64[]
-    
-    # Filter out empty bins and compute means
-    for i in 1:n_bins
-        if bin_counts[i] > 0
-            h_mid = (h_edges[i] + h_edges[i+1]) / 2
-            push!(h_mids, h_mid)
-            push!(variograms, bin_sums[i] / bin_counts[i])
-            push!(counts, bin_counts[i])
+
+    # -----------------------------------------------------------
+    # Construct DataFrame
+    # -----------------------------------------------------------
+    h_mid = Float64[]
+    variogram = Float64[]
+    count = Int[]
+
+    for b in 1:n_bins
+        if bin_counts[b] > 0
+            push!(h_mid, (b - 0.5) * bin_width)
+            push!(variogram, bin_sums[b] / bin_counts[b])
+            push!(count, bin_counts[b])
         end
     end
-    
-    # Construct the DataFrame all at once (fast!)
-    return DataFrame(h_mid = h_mids, variogram = variograms, count = counts)
+
+    return DataFrame(
+        h_mid = h_mid,
+        variogram = variogram,
+        count = count,
+    )
+end
+
+function empirical_temporal_variogram(times, y; n_bins=50)
+    n = length(y)
+
+    # -----------------------------------------------------------
+    # First pass: determine maximum time lag (hours)
+    # -----------------------------------------------------------
+    h_max = 0.0
+
+    for i in 1:n-1
+        for j in i+1:n
+            d = abs(Dates.value(times[j] - times[i])) / (1000 * 60 * 60)  # hours
+
+            if d > h_max
+                h_max = d
+            end
+        end
+    end
+
+    bin_width = h_max / n_bins
+
+    bin_sums = zeros(Float64, n_bins)
+    bin_counts = zeros(Int, n_bins)
+
+    # -----------------------------------------------------------
+    # Second pass: compute semivariances and bin immediately
+    # -----------------------------------------------------------
+    for i in 1:n-1
+        yi = y[i]
+
+        for j in i+1:n
+            d = abs(Dates.value(times[j] - times[i])) / (1000 * 60 * 60)  # hours
+
+            γ = 0.5 * (yi - y[j])^2
+
+            bin = d == h_max ? n_bins : floor(Int, d / bin_width) + 1
+
+            @inbounds begin
+                bin_sums[bin] += γ
+                bin_counts[bin] += 1
+            end
+        end
+    end
+
+    # -----------------------------------------------------------
+    # Construct DataFrame
+    # -----------------------------------------------------------
+    h_mid = Float64[]
+    variogram = Float64[]
+    count = Int[]
+
+    for b in 1:n_bins
+        if bin_counts[b] > 0
+            push!(h_mid, (b - 0.5) * bin_width)
+            push!(variogram, bin_sums[b] / bin_counts[b])
+            push!(count, bin_counts[b])
+        end
+    end
+
+    return DataFrame(
+        h_mid = h_mid,          # time lag (hours)
+        variogram = variogram,
+        count = count,
+    )
 end
 
 function covariance(x1, x2, λₓ, σ)
     return (σ^2) .* exp(-norm.(x1.-x2)/λₓ);
 end
 
-function matern12_variogram(h, σ_sq, λₓ)
-    return σ_sq .* (1 .- exp.(-h./λₓ))
-end
-
-function matern12_variogram(h, p)
-    return p[1] .* (1 .- exp.(-h./p[2]))
-end
-
-function matern12_log(h, σ_sq, λₓ)
-    return log(σ_sq).-(h./λₓ)
-    # return -(1/λₓ).*h
-end
-
-function matern12_lin(h, σ_sq, λₓ)
-    return -1/λₓ
-end
-
 function spatio_variogram(h,p)
-    return (p[1]^2) .* (1 .- exp.(-h./p[2]))
+    return (p[1]^2) .* (1 .- exp.(-h./ p[2]))
 end
 
-function temporal_variogram(beta_0,beta_1,beta_2,u)
-    return beta_0 - beta_1.*u + beta_2.*(cos.(pi.*u./12.5) - 1)
+function spatio_RBF_variogram(h,p)
+    return (p[1]^2) .* (1 .- exp.(-(h.^2)./ (2 .*(p[2]).^2)))
+end
+
+function temporal_variogram(t,p)
+    return p[2].*t .- p[3].*(cos.(pi.*t./12.5) .- 1)
 end
 
 function spatiotemporal_variogram(lambda,beta_0,beta_1,beta_2,h,u,l)
     return ((lambda^2) .* exp(-h./l)) .* (beta_0 - beta_1.*u + beta_2.*(cos.(pi.*u./12.5) - 1))
 end
 
-"Fit hyperparameters to measurements"
+"Fit hyperparameters to spatial measurements"
 function hp_fit(lon, lat, y)
-    h, γ = pairwise_distances(lon, lat, y);
-    emp_vario = empirical_variogram(h, γ);
+    emp_vario = empirical_spatial_variogram(lon, lat, y);
     param_fit = curve_fit(spatio_variogram, emp_vario.h_mid, emp_vario.variogram, [1.0,1.0]);
     return param_fit.param[1], param_fit.param[2]
+end
+
+"Fit hyperparameters to temporal measurements"
+function hp_fit(times, y)
+    emp_vario = empirical_temporal_variogram(times, y);
+    param_fit = curve_fit(temporal_variogram, emp_vario.h_mid, emp_vario.variogram, [1.0,1.0,1.0]);
+    return param_fit.param[1], param_fit.param[2], param_fit.param[3]
 end
 
 "Fit hyperparameters to spatiotemporal measurements"
