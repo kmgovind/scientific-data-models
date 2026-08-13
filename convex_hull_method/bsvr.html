@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="HAB Tracking Team">
+<meta name="dcterms.date" content="2026-07-16">
+
+<title>HAB Tracking via Bayesian Support Vector Regression</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="bsvr_files/libs/clipboard/clipboard.min.js"></script>
+<script src="bsvr_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="bsvr_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="bsvr_files/libs/quarto-html/popper.min.js"></script>
+<script src="bsvr_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="bsvr_files/libs/quarto-html/anchor.min.js"></script>
+<link href="bsvr_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="bsvr_files/libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="bsvr_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="bsvr_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="bsvr_files/libs/bootstrap/bootstrap-0a2c3cbbc15361b8b1774f7471b4f65d.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#problem-setup-and-convex-hull-representation" id="toc-problem-setup-and-convex-hull-representation" class="nav-link active" data-scroll-target="#problem-setup-and-convex-hull-representation">Problem Setup and Convex Hull Representation</a></li>
+  <li><a href="#bayesian-support-vector-model" id="toc-bayesian-support-vector-model" class="nav-link" data-scroll-target="#bayesian-support-vector-model">Bayesian Support Vector Model</a></li>
+  <li><a href="#the-state-vector" id="toc-the-state-vector" class="nav-link" data-scroll-target="#the-state-vector">1. The State Vector</a></li>
+  <li><a href="#the-physics-informed-process-model-prediction" id="toc-the-physics-informed-process-model-prediction" class="nav-link" data-scroll-target="#the-physics-informed-process-model-prediction">2. The Physics-Informed Process Model (Prediction)</a>
+  <ul class="collapse">
+  <li><a href="#centroid-translation" id="toc-centroid-translation" class="nav-link" data-scroll-target="#centroid-translation">Centroid Translation</a></li>
+  <li><a href="#radial-deformation-current-shear" id="toc-radial-deformation-current-shear" class="nav-link" data-scroll-target="#radial-deformation-current-shear">Radial Deformation (Current Shear)</a></li>
+  <li><a href="#linearization-the-jacobian-mathbff_k" id="toc-linearization-the-jacobian-mathbff_k" class="nav-link" data-scroll-target="#linearization-the-jacobian-mathbff_k">Linearization (The Jacobian <span class="math inline">\(\mathbf{F}_k\)</span>)</a></li>
+  </ul></li>
+  <li><a href="#specialized-bsvr-kernel-formulation" id="toc-specialized-bsvr-kernel-formulation" class="nav-link" data-scroll-target="#specialized-bsvr-kernel-formulation">3. Specialized BSVR Kernel Formulation</a>
+  <ul class="collapse">
+  <li><a href="#spatial-angular-component-periodic-kernel" id="toc-spatial-angular-component-periodic-kernel" class="nav-link" data-scroll-target="#spatial-angular-component-periodic-kernel">Spatial Angular Component (Periodic Kernel)</a></li>
+  <li><a href="#temporal-component-matérn-32-kernel" id="toc-temporal-component-matérn-32-kernel" class="nav-link" data-scroll-target="#temporal-component-matérn-32-kernel">Temporal Component (Matérn 3/2 Kernel)</a></li>
+  </ul></li>
+  <li><a href="#the-bsvr-measurement-model-update" id="toc-the-bsvr-measurement-model-update" class="nav-link" data-scroll-target="#the-bsvr-measurement-model-update">4. The BSVR Measurement Model (Update)</a>
+  <ul class="collapse">
+  <li><a href="#the-measurement-vector-mathbfz_k" id="toc-the-measurement-vector-mathbfz_k" class="nav-link" data-scroll-target="#the-measurement-vector-mathbfz_k">The Measurement Vector (<span class="math inline">\(\mathbf{z}_k\)</span>)</a></li>
+  <li><a href="#the-dynamic-measurement-covariance-matrix-mathbfr_k" id="toc-the-dynamic-measurement-covariance-matrix-mathbfr_k" class="nav-link" data-scroll-target="#the-dynamic-measurement-covariance-matrix-mathbfr_k">The Dynamic Measurement Covariance Matrix (<span class="math inline">\(\mathbf{R}_k\)</span>)</a></li>
+  <li><a href="#the-filter-correction-step" id="toc-the-filter-correction-step" class="nav-link" data-scroll-target="#the-filter-correction-step">The Filter Correction Step</a></li>
+  <li><a href="#summary-of-the-computational-loop" id="toc-summary-of-the-computational-loop" class="nav-link" data-scroll-target="#summary-of-the-computational-loop">Summary of the Computational Loop</a></li>
+  </ul></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">HAB Tracking via Bayesian Support Vector Regression</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>HAB Tracking Team </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">July 16, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="problem-setup-and-convex-hull-representation" class="level2">
+<h2 class="anchored" data-anchor-id="problem-setup-and-convex-hull-representation">Problem Setup and Convex Hull Representation</h2>
+<p>Let us first define the spatial domain of the water body as <span class="math inline">\(\Omega \subset \mathbb{R}^2\)</span>. The HAB boundary at time <span class="math inline">\(t\)</span> is defined by a threshold <span class="math inline">\(\xi\)</span> of a concentration field <span class="math inline">\(f_{\mathrm{HAB}}(\mathbf{s}, t)\)</span>:</p>
+<p><span class="math display">\[
+\mathcal{P}(t) = \left\{ \mathbf{s} \in \Omega: f_{\mathrm{HAB}}(\mathbf{s},t) = \xi \right| \}
+\]</span></p>
+<p>To compress this continuous boundary into a low-dimensional representation, we compute its convex hull from the scattered sensor hits that exceed or match our threshold <span class="math inline">\(\xi\)</span>. Once the hull is established, we locate its centroid:</p>
+<p><span class="math display">\[
+\mathbf{c}_t = \begin{bmatrix} x_c \\ y_c \end{bmatrix} = \frac{1}{N_{hull}} \sum_{i=1}^{N_{hull}} \mathbf{s}_i^{hull}
+\]</span></p>
+<p>From this centroid, we project <span class="math inline">\(D = 16\)</span> discrete radii at fixed angular intervals to parameterize the bloom’s boundary shape:</p>
+<p><span class="math display">\[
+\theta_d = \frac{2\pi (d-1)}{16}, \quad d = 1, \dots, 16
+\]</span></p>
+</section>
+<section id="bayesian-support-vector-model" class="level2">
+<h2 class="anchored" data-anchor-id="bayesian-support-vector-model">Bayesian Support Vector Model</h2>
+<p>Sourcing or measuring the localized water currents elevates this system from a reactive tracker to a predictive forecasting machine. By combining the physical advection of water currents with the data-driven updates of BSVR, you form a bulletproof <strong>Physics-Informed Extended Kalman Filter (PI-EKF)</strong>.</p>
+<p>Here is the complete formalization of this hybrid framework, including the required coordinate transformations, the non-linear process dynamics, the specialized spatio-temporal kernel, and the measurement update equations.</p>
+<hr>
+</section>
+<section id="the-state-vector" class="level2">
+<h2 class="anchored" data-anchor-id="the-state-vector">1. The State Vector</h2>
+<p>The state of the HAB boundary at time step <span class="math inline">\(k\)</span> is parameterized by an 18-dimensional vector <span class="math inline">\(\mathbf{x}_k \in \mathbb{R}^{18}\)</span>, capturing the spatial center of mass and the lengths of the 16 projected boundary rays:</p>
+<p><span class="math display">\[\mathbf{x}_k = \begin{bmatrix} \mathbf{c}_k \\ \mathbf{r}_k \end{bmatrix} = \begin{bmatrix} x_c \\ y_c \\ r_1 \\ r_2 \\ \vdots \\ r_{16} \end{bmatrix}_k\]</span></p>
+<p>Each radius <span class="math inline">\(r_d\)</span> corresponds to a fixed angular direction vector <span class="math inline">\(\mathbf{n}_d\)</span> relative to the centroid:</p>
+<p><span class="math display">\[\mathbf{n}_d = \begin{bmatrix} \cos\theta_d \\ \sin\theta_d \end{bmatrix}, \quad \theta_d = \frac{2\pi(d-1)}{16}, \quad d = 1, \dots, 16\]</span></p>
+<p>The absolute spatial coordinate of any boundary node <span class="math inline">\(\mathbf{s}_d\)</span> on the water’s surface is mapped via:</p>
+<p><span class="math display">\[\mathbf{s}_d(k) = \mathbf{c}_k + r_d(k)\mathbf{n}_d\]</span></p>
+<hr>
+</section>
+<section id="the-physics-informed-process-model-prediction" class="level2">
+<h2 class="anchored" data-anchor-id="the-physics-informed-process-model-prediction">2. The Physics-Informed Process Model (Prediction)</h2>
+<p>Let <span class="math inline">\(\mathbf{v}(\mathbf{s}) = [v_x(\mathbf{s}), v_y(\mathbf{s})]^T\)</span> represent the localized 2D water current velocity field at any surface coordinate <span class="math inline">\(\mathbf{s} \in \Omega\)</span>, obtained via onboard sensors or hydrodynamic models.</p>
+<section id="centroid-translation" class="level3">
+<h3 class="anchored" data-anchor-id="centroid-translation">Centroid Translation</h3>
+<p>The bloom’s center of mass advects directly with the current velocity evaluated at the centroid:</p>
+<p><span class="math display">\[\mathbf{c}_{k+1} = \mathbf{c}_k + \mathbf{v}(\mathbf{c}_k)\Delta t + \mathbf{w}_c\]</span></p>
+</section>
+<section id="radial-deformation-current-shear" class="level3">
+<h3 class="anchored" data-anchor-id="radial-deformation-current-shear">Radial Deformation (Current Shear)</h3>
+<p>A radius <span class="math inline">\(r_d\)</span> changes length if the water current at the boundary node <span class="math inline">\(\mathbf{s}_d\)</span> differs from the current pulling the centroid <span class="math inline">\(\mathbf{c}_k\)</span>. The net growth or contraction rate is the projection of this relative velocity vector onto the radial unit vector <span class="math inline">\(\mathbf{n}_d\)</span>:</p>
+<p><span class="math display">\[r_d(k+1) = r_d(k) + \Delta t \left( \mathbf{v}(\mathbf{s}_d(k)) - \mathbf{v}(\mathbf{c}_k) \right)^T \mathbf{n}_d + w_{r,d}\]</span></p>
+<p>Because <span class="math inline">\(\mathbf{s}_d\)</span> depends implicitly on both the centroid and the radius, this process model is inherently non-linear, requiring an EKF step:</p>
+<p><span class="math display">\[\mathbf{x}_{k+1} = \mathbf{f}(\mathbf{x}_k, \mathbf{v}) + \mathbf{w}_k, \quad \mathbf{w}_k \sim \mathcal{N}(0, \mathbf{Q}_k)\]</span></p>
+</section>
+<section id="linearization-the-jacobian-mathbff_k" class="level3">
+<h3 class="anchored" data-anchor-id="linearization-the-jacobian-mathbff_k">Linearization (The Jacobian <span class="math inline">\(\mathbf{F}_k\)</span>)</h3>
+<p>To propagate the state covariance matrix <span class="math inline">\(\mathbf{P}_k\)</span>, we compute the Jacobian matrix <span class="math inline">\(\mathbf{F}_k = \frac{\partial \mathbf{f}}{\partial \mathbf{x}}\big\vert{}_{\mathbf{x}_k}\)</span>. Given the spatial gradient of the velocity field (the current shear tensor <span class="math inline">\(\nabla \mathbf{v} = \frac{\partial \mathbf{v}}{\partial \mathbf{s}}\)</span>), the derivatives are:</p>
+<p><span class="math display">\[\frac{\partial \mathbf{f}_c}{\partial \mathbf{c}} = \mathbf{I}_{2\times 2} + \Delta t \cdot \nabla \mathbf{v}(\mathbf{c}_k)\]</span></p>
+<p><span class="math display">\[\frac{\partial f_{r,d}}{\partial r_d} = 1 + \Delta t \cdot \mathbf{n}_d^T \nabla \mathbf{v}(\mathbf{s}_d) \mathbf{n}_d\]</span></p>
+<p>The covariance is then predicted forward, reflecting an increase in uncertainty (clarity decay) due to unmodeled turbulent diffusion (<span class="math inline">\(\mathbf{Q}_k\)</span>):</p>
+<p><span class="math display">\[\mathbf{P}_{k+1 \mid k} = \mathbf{F}_k \mathbf{P}_k \mathbf{F}_k^T + \mathbf{Q}_k\]</span></p>
+<hr>
+</section>
+</section>
+<section id="specialized-bsvr-kernel-formulation" class="level2">
+<h2 class="anchored" data-anchor-id="specialized-bsvr-kernel-formulation">3. Specialized BSVR Kernel Formulation</h2>
+<p>Before formalizing the measurement update, we must define how the BSVR model interpolates the boundary. Because the spatial component is angular, standard squared-exponential kernels fail due to the <span class="math inline">\(0 \to 2\pi\)</span> wrap-around discontinuity.</p>
+<p>We construct a custom <strong>Spatio-Temporal Product Kernel</strong> <span class="math inline">\(k(\mathbf{x}, \mathbf{x}')\)</span> where <span class="math inline">\(\mathbf{x} = [\theta, t]^T\)</span>:</p>
+<p><span class="math display">\[k(\mathbf{x}, \mathbf{x}') = \sigma_f^2 \cdot k_\theta(\theta, \theta') \cdot k_t(t, t')\]</span></p>
+<section id="spatial-angular-component-periodic-kernel" class="level3">
+<h3 class="anchored" data-anchor-id="spatial-angular-component-periodic-kernel">Spatial Angular Component (Periodic Kernel)</h3>
+<p>To ensure the boundary is smooth and continuous across the <span class="math inline">\(2\pi\)</span> threshold, we map the angles onto a unit circle:</p>
+<p><span class="math display">\[k_\theta(\theta, \theta') = \exp\left( -\frac{2 \sin^2\left(\frac{\theta - \theta'}{2}\right)}{\ell_\theta^2} \right)\]</span></p>
+</section>
+<section id="temporal-component-matérn-32-kernel" class="level3">
+<h3 class="anchored" data-anchor-id="temporal-component-matérn-32-kernel">Temporal Component (Matérn 3/2 Kernel)</h3>
+<p>To allow the model to learn seasonal or sudden physical changes without over-smoothing time-series features, a Matérn 3/2 kernel is preferred over an RBF for time:</p>
+<p><span class="math display">\[k_t(t, t') = \left( 1 + \frac{\sqrt{3}\vert{}t - t'\vert{}}{\ell_t} \right) \exp\left( -\frac{\sqrt{3}\vert{}t - t'\vert{}}{\ell_t} \right)\]</span></p>
+<p><em>(Where <span class="math inline">\(\sigma_f^2\)</span> is the signal variance, <span class="math inline">\(\ell_\theta\)</span> is the angular smoothing length-scale, and <span class="math inline">\(\ell_t\)</span> is the temporal memory horizon).</em></p>
+<hr>
+</section>
+</section>
+<section id="the-bsvr-measurement-model-update" class="level2">
+<h2 class="anchored" data-anchor-id="the-bsvr-measurement-model-update">4. The BSVR Measurement Model (Update)</h2>
+<p>As the robot collects a batch of scattered raw boundary detections during epoch <span class="math inline">\(k\)</span>, it fits an online BSVR model using the spatio-temporal kernel above. We then use this updated BSVR model as the “sensor” that corrects our Kalman Filter state.</p>
+<p>We query the continuous BSVR predictive mean <span class="math inline">\(m_{SVR}(\theta, t)\)</span> and variance <span class="math inline">\(\sigma^2_{SVR}(\theta, t)\)</span> at the 16 exact tracking angles <span class="math inline">\(\theta_d\)</span>.</p>
+<section id="the-measurement-vector-mathbfz_k" class="level3">
+<h3 class="anchored" data-anchor-id="the-measurement-vector-mathbfz_k">The Measurement Vector (<span class="math inline">\(\mathbf{z}_k\)</span>)</h3>
+<p>The measurement vector consists of the 16 clean radii extracted from the BSVR model:</p>
+<p><span class="math display">\[\mathbf{z}_k = \begin{bmatrix} m_{SVR}(\theta_1, t_k) \\ m_{SVR}(\theta_2, t_k) \\ \vdots \\ m_{SVR}(\theta_{16}, t_k) \end{bmatrix} \in \mathbb{R}^{16}\]</span></p>
+<p>The linear measurement matrix <span class="math inline">\(\mathbf{H}\)</span> simply maps the state’s radial components to the measurement space:</p>
+<p><span class="math display">\[\mathbf{H} = \begin{bmatrix} \mathbf{0}_{16 \times 2} &amp; \big\vert{} &amp; \mathbf{I}_{16 \times 16} \end{bmatrix}\]</span></p>
+</section>
+<section id="the-dynamic-measurement-covariance-matrix-mathbfr_k" class="level3">
+<h3 class="anchored" data-anchor-id="the-dynamic-measurement-covariance-matrix-mathbfr_k">The Dynamic Measurement Covariance Matrix (<span class="math inline">\(\mathbf{R}_k\)</span>)</h3>
+<p>This is the core strength of the architecture. Instead of assigning a static, arbitrary noise value to your sensor readings, <strong>the Kalman Filter scales its trust based on the localized certainty of the BSVR model</strong>.</p>
+<p>We construct a diagonal matrix <span class="math inline">\(\mathbf{R}_k \in \mathbb{R}^{16 \times 16}\)</span> directly from the BSVR Laplace-approximated predictive variances:</p>
+<p><span class="math display">\[\mathbf{R}_k = \begin{bmatrix} \sigma^2_{SVR}(\theta_1, t_k) &amp; 0 &amp; \dots &amp; 0 \\ 0 &amp; \sigma^2_{SVR}(\theta_2, t_k) &amp; \dots &amp; 0 \\ \vdots &amp; \vdots &amp; \ddots &amp; \vdots \\ 0 &amp; 0 &amp; \dots &amp; \sigma^2_{SVR}(\theta_{16}, t_k) \end{bmatrix}\]</span></p>
+<p>If the robot has recently sampled a specific sector, <span class="math inline">\(\sigma^2_{SVR}\)</span> drops near <span class="math inline">\(0\)</span>, causing the filter to heavily trust the BSVR measurement and aggressively correct the physical state. If a sector has not been visited, <span class="math inline">\(\sigma^2_{SVR} \to \infty\)</span>, causing the Kalman Filter to ignore the measurement for those angles and rely purely on the current advection prediction model.</p>
+</section>
+<section id="the-filter-correction-step" class="level3">
+<h3 class="anchored" data-anchor-id="the-filter-correction-step">The Filter Correction Step</h3>
+<p>With <span class="math inline">\(\mathbf{z}_k\)</span>, <span class="math inline">\(\mathbf{H}\)</span>, and <span class="math inline">\(\mathbf{R}_k\)</span> defined, the standard EKF update loop executes:</p>
+<p><span class="math display">\[\mathbf{S}_k = \mathbf{H} \mathbf{P}_{k+1 \mid k} \mathbf{H}^T + \mathbf{R}_k \quad \text{(Innovation Covariance)}\]</span></p>
+<p><span class="math display">\[\mathbf{K}_k = \mathbf{P}_{k+1 \mid k} \mathbf{H}^T \mathbf{S}_k^{-1} \quad \text{(Kalman Gain)}\]</span></p>
+<p><span class="math display">\[\mathbf{x}_{k+1 \mid k+1} = \mathbf{x}_{k+1 \mid k} + \mathbf{K}_k \left( \mathbf{z}_k - \mathbf{H}\mathbf{x}_{k+1 \mid k} \right)\]</span></p>
+<p><span class="math display">\[\mathbf{P}_{k+1 \mid k+1} = (\mathbf{I} - \mathbf{K}_k \mathbf{H}) \mathbf{P}_{k+1 \mid k}\]</span></p>
+<hr>
+</section>
+<section id="summary-of-the-computational-loop" class="level3">
+<h3 class="anchored" data-anchor-id="summary-of-the-computational-loop">Summary of the Computational Loop</h3>
+<pre><code>  [Raw Sensor Hits] ---&gt; (Online BSVR Engine) 
+                                 |
+                                 v  (Queries Mean &amp; Variance)
+[Current Field v(s)] ---&gt; (PI-EKF Prediction) ---&gt; (PI-EKF Update Step using R_k) ---&gt; [Optimized State Map]
+</code></pre>
+<p>This math binds the physics of the water body to the statistics of your machine learning model.</p>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
