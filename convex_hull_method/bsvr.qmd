@@ -1,0 +1,173 @@
+---
+title: "HAB Tracking via Bayesian Support Vector Regression"
+author: "HAB Tracking Team"
+date: 2026-07-16
+format: 
+  html:
+    toc: true
+    theme: cosmo
+engine: julia
+---
+
+## Problem Setup and Convex Hull Representation
+
+Let us first define the spatial domain of the water body as $\Omega \subset \mathbb{R}^2$. The HAB boundary at time $t$ is defined by a threshold $\xi$ of a concentration field $f_{\mathrm{HAB}}(\mathbf{s}, t)$:
+
+$$
+\mathcal{P}(t) = \left\{ \mathbf{s} \in \Omega: f_{\mathrm{HAB}}(\mathbf{s},t) = \xi \right| \}
+$$
+
+To compress this continuous boundary into a low-dimensional representation, we compute its convex hull from the scattered sensor hits that exceed or match our threshold $\xi$. Once the hull is established, we locate its centroid:
+
+$$
+\mathbf{c}_t = \begin{bmatrix} x_c \\ y_c \end{bmatrix} = \frac{1}{N_{hull}} \sum_{i=1}^{N_{hull}} \mathbf{s}_i^{hull}
+$$
+
+From this centroid, we project $D = 16$ discrete radii at fixed angular intervals to parameterize the bloom's boundary shape:
+
+$$
+\theta_d = \frac{2\pi (d-1)}{16}, \quad d = 1, \dots, 16
+$$
+
+
+
+## Bayesian Support Vector Model 
+Sourcing or measuring the localized water currents elevates this system from a reactive tracker to a predictive forecasting machine. By combining the physical advection of water currents with the data-driven updates of BSVR, you form a bulletproof **Physics-Informed Extended Kalman Filter (PI-EKF)**.
+
+Here is the complete formalization of this hybrid framework, including the required coordinate transformations, the non-linear process dynamics, the specialized spatio-temporal kernel, and the measurement update equations.
+
+---
+
+## 1. The State Vector
+
+The state of the HAB boundary at time step $k$ is parameterized by an 18-dimensional vector $\mathbf{x}_k \in \mathbb{R}^{18}$, capturing the spatial center of mass and the lengths of the 16 projected boundary rays:
+
+$$\mathbf{x}_k = \begin{bmatrix} \mathbf{c}_k \\ \mathbf{r}_k \end{bmatrix} = \begin{bmatrix} x_c \\ y_c \\ r_1 \\ r_2 \\ \vdots \\ r_{16} \end{bmatrix}_k$$
+
+Each radius $r_d$ corresponds to a fixed angular direction vector $\mathbf{n}_d$ relative to the centroid:
+
+$$\mathbf{n}_d = \begin{bmatrix} \cos\theta_d \\ \sin\theta_d \end{bmatrix}, \quad \theta_d = \frac{2\pi(d-1)}{16}, \quad d = 1, \dots, 16$$
+
+The absolute spatial coordinate of any boundary node $\mathbf{s}_d$ on the water's surface is mapped via:
+
+
+$$\mathbf{s}_d(k) = \mathbf{c}_k + r_d(k)\mathbf{n}_d$$
+
+---
+
+## 2. The Physics-Informed Process Model (Prediction)
+
+Let $\mathbf{v}(\mathbf{s}) = [v_x(\mathbf{s}), v_y(\mathbf{s})]^T$ represent the localized 2D water current velocity field at any surface coordinate $\mathbf{s} \in \Omega$, obtained via onboard sensors or hydrodynamic models.
+
+### Centroid Translation
+
+The bloom’s center of mass advects directly with the current velocity evaluated at the centroid:
+
+
+$$\mathbf{c}_{k+1} = \mathbf{c}_k + \mathbf{v}(\mathbf{c}_k)\Delta t + \mathbf{w}_c$$
+
+### Radial Deformation (Current Shear)
+
+A radius $r_d$ changes length if the water current at the boundary node $\mathbf{s}_d$ differs from the current pulling the centroid $\mathbf{c}_k$. The net growth or contraction rate is the projection of this relative velocity vector onto the radial unit vector $\mathbf{n}_d$:
+
+$$r_d(k+1) = r_d(k) + \Delta t \left( \mathbf{v}(\mathbf{s}_d(k)) - \mathbf{v}(\mathbf{c}_k) \right)^T \mathbf{n}_d + w_{r,d}$$
+
+Because $\mathbf{s}_d$ depends implicitly on both the centroid and the radius, this process model is inherently non-linear, requiring an EKF step:
+
+
+$$\mathbf{x}_{k+1} = \mathbf{f}(\mathbf{x}_k, \mathbf{v}) + \mathbf{w}_k, \quad \mathbf{w}_k \sim \mathcal{N}(0, \mathbf{Q}_k)$$
+
+### Linearization (The Jacobian $\mathbf{F}_k$)
+
+To propagate the state covariance matrix $\mathbf{P}_k$, we compute the Jacobian matrix $\mathbf{F}_k = \frac{\partial \mathbf{f}}{\partial \mathbf{x}}\big\vert{}_{\mathbf{x}_k}$. Given the spatial gradient of the velocity field (the current shear tensor $\nabla \mathbf{v} = \frac{\partial \mathbf{v}}{\partial \mathbf{s}}$), the derivatives are:
+
+$$\frac{\partial \mathbf{f}_c}{\partial \mathbf{c}} = \mathbf{I}_{2\times 2} + \Delta t \cdot \nabla \mathbf{v}(\mathbf{c}_k)$$
+
+$$\frac{\partial f_{r,d}}{\partial r_d} = 1 + \Delta t \cdot \mathbf{n}_d^T \nabla \mathbf{v}(\mathbf{s}_d) \mathbf{n}_d$$
+
+The covariance is then predicted forward, reflecting an increase in uncertainty (clarity decay) due to unmodeled turbulent diffusion ($\mathbf{Q}_k$):
+
+
+$$\mathbf{P}_{k+1 \mid k} = \mathbf{F}_k \mathbf{P}_k \mathbf{F}_k^T + \mathbf{Q}_k$$
+
+---
+
+## 3. Specialized BSVR Kernel Formulation
+
+Before formalizing the measurement update, we must define how the BSVR model interpolates the boundary. Because the spatial component is angular, standard squared-exponential kernels fail due to the $0 \to 2\pi$ wrap-around discontinuity.
+
+We construct a custom **Spatio-Temporal Product Kernel** $k(\mathbf{x}, \mathbf{x}')$ where $\mathbf{x} = [\theta, t]^T$:
+
+$$k(\mathbf{x}, \mathbf{x}') = \sigma_f^2 \cdot k_\theta(\theta, \theta') \cdot k_t(t, t')$$
+
+### Spatial Angular Component (Periodic Kernel)
+
+To ensure the boundary is smooth and continuous across the $2\pi$ threshold, we map the angles onto a unit circle:
+
+
+$$k_\theta(\theta, \theta') = \exp\left( -\frac{2 \sin^2\left(\frac{\theta - \theta'}{2}\right)}{\ell_\theta^2} \right)$$
+
+### Temporal Component (Matérn 3/2 Kernel)
+
+To allow the model to learn seasonal or sudden physical changes without over-smoothing time-series features, a Matérn 3/2 kernel is preferred over an RBF for time:
+
+
+$$k_t(t, t') = \left( 1 + \frac{\sqrt{3}\vert{}t - t'\vert{}}{\ell_t} \right) \exp\left( -\frac{\sqrt{3}\vert{}t - t'\vert{}}{\ell_t} \right)$$
+
+*(Where $\sigma_f^2$ is the signal variance, $\ell_\theta$ is the angular smoothing length-scale, and $\ell_t$ is the temporal memory horizon).*
+
+---
+
+## 4. The BSVR Measurement Model (Update)
+
+As the robot collects a batch of scattered raw boundary detections during epoch $k$, it fits an online BSVR model using the spatio-temporal kernel above. We then use this updated BSVR model as the "sensor" that corrects our Kalman Filter state.
+
+We query the continuous BSVR predictive mean $m_{SVR}(\theta, t)$ and variance $\sigma^2_{SVR}(\theta, t)$ at the 16 exact tracking angles $\theta_d$.
+
+### The Measurement Vector ($\mathbf{z}_k$)
+
+The measurement vector consists of the 16 clean radii extracted from the BSVR model:
+
+
+$$\mathbf{z}_k = \begin{bmatrix} m_{SVR}(\theta_1, t_k) \\ m_{SVR}(\theta_2, t_k) \\ \vdots \\ m_{SVR}(\theta_{16}, t_k) \end{bmatrix} \in \mathbb{R}^{16}$$
+
+The linear measurement matrix $\mathbf{H}$ simply maps the state's radial components to the measurement space:
+
+
+$$\mathbf{H} = \begin{bmatrix} \mathbf{0}_{16 \times 2} & \big\vert{} & \mathbf{I}_{16 \times 16} \end{bmatrix}$$
+
+### The Dynamic Measurement Covariance Matrix ($\mathbf{R}_k$)
+
+This is the core strength of the architecture. Instead of assigning a static, arbitrary noise value to your sensor readings, **the Kalman Filter scales its trust based on the localized certainty of the BSVR model**.
+
+We construct a diagonal matrix $\mathbf{R}_k \in \mathbb{R}^{16 \times 16}$ directly from the BSVR Laplace-approximated predictive variances:
+
+$$\mathbf{R}_k = \begin{bmatrix} \sigma^2_{SVR}(\theta_1, t_k) & 0 & \dots & 0 \\ 0 & \sigma^2_{SVR}(\theta_2, t_k) & \dots & 0 \\ \vdots & \vdots & \ddots & \vdots \\ 0 & 0 & \dots & \sigma^2_{SVR}(\theta_{16}, t_k) \end{bmatrix}$$
+
+If the robot has recently sampled a specific sector, $\sigma^2_{SVR}$ drops near $0$, causing the filter to heavily trust the BSVR measurement and aggressively correct the physical state. If a sector has not been visited, $\sigma^2_{SVR} \to \infty$, causing the Kalman Filter to ignore the measurement for those angles and rely purely on the current advection prediction model.
+
+### The Filter Correction Step
+
+With $\mathbf{z}_k$, $\mathbf{H}$, and $\mathbf{R}_k$ defined, the standard EKF update loop executes:
+
+$$\mathbf{S}_k = \mathbf{H} \mathbf{P}_{k+1 \mid k} \mathbf{H}^T + \mathbf{R}_k \quad \text{(Innovation Covariance)}$$
+
+$$\mathbf{K}_k = \mathbf{P}_{k+1 \mid k} \mathbf{H}^T \mathbf{S}_k^{-1} \quad \text{(Kalman Gain)}$$
+
+$$\mathbf{x}_{k+1 \mid k+1} = \mathbf{x}_{k+1 \mid k} + \mathbf{K}_k \left( \mathbf{z}_k - \mathbf{H}\mathbf{x}_{k+1 \mid k} \right)$$
+
+$$\mathbf{P}_{k+1 \mid k+1} = (\mathbf{I} - \mathbf{K}_k \mathbf{H}) \mathbf{P}_{k+1 \mid k}$$
+
+---
+
+### Summary of the Computational Loop
+
+```
+  [Raw Sensor Hits] ---> (Online BSVR Engine) 
+                                 |
+                                 v  (Queries Mean & Variance)
+[Current Field v(s)] ---> (PI-EKF Prediction) ---> (PI-EKF Update Step using R_k) ---> [Optimized State Map]
+
+```
+
+This math binds the physics of the water body to the statistics of your machine learning model.
