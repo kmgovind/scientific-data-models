@@ -180,7 +180,7 @@ function spatio_RBF_variogram(h,p)
 end
 
 function temporal_variogram(t,p)
-    return p[2].*t .- p[3].*(cos.(2 .*pi.*t./12.5) .- 1)
+    return p[1].*(1 .- exp.(-t./p[2]) .+ p[3].*(cos.(pi.*t./12.5) .- 1) .+ p[4].*(cos.(pi.*t./6.25) .- 1))
 end
 
 function spatiotemporal_variogram(lambda,beta_0,beta_1,beta_2,h,u,l)
