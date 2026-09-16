@@ -2,7 +2,7 @@ using NCDatasets, Dates, Downloads
 
 # Define the date range
 num_days = 2;
-start_date = Date(2026, 6, 16);
+start_date = Date(2026, 6, 18);
 dates = [start_date + Day(i) for i in 0:(num_days-1)];
 cycles = ["00", "06", "12", "18"]; # Define the cycles to download
 
